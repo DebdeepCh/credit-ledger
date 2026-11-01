@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Credit Ledger · Loan Default Risk</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1c1b18; --muted: #6b6860; --line: #dedbd2;
+    --accent: #1f4d3a; --accent-ink: #ffffff; --low: #1f7a4d; --high: #b3382c;
+    --low-bg: #e6f3ec; --high-bg: #fbe9e6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151512; --card: #1e1e1a; --ink: #ecebe5; --muted: #a09d93; --line: #35342e;
+      --accent: #5fbf93; --accent-ink: #0f1d16; --low: #6fd3a0; --high: #f08a7e;
+      --low-bg: #17301f; --high-bg: #3a1c18;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.45; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 18px 56px; }
+  h1 { font-family: Georgia, "Times New Roman", serif; font-size: 2rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  form { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 5px; }
+  input, select { width: 100%; padding: 10px 11px; font-size: 1rem; color: var(--ink); background: var(--bg);
+                  border: 1px solid var(--line); border-radius: 8px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[readonly] { color: var(--muted); }
+  .hint { font-size: .75rem; color: var(--muted); margin-top: 4px; }
+  button { margin-top: 22px; width: 100%; padding: 13px; font-size: 1rem; font-weight: 600; cursor: pointer;
+           color: var(--accent-ink); background: var(--accent); border: 0; border-radius: 10px; }
+  button:disabled { opacity: .6; cursor: wait; }
+  #result { margin-top: 22px; display: none; border-radius: 14px; padding: 20px; border: 1px solid var(--line); }
+  #result.low { background: var(--low-bg); border-color: var(--low); }
+  #result.high { background: var(--high-bg); border-color: var(--high); }
+  #verdict { font-family: Georgia, serif; font-size: 1.6rem; margin: 0 0 12px; }
+  #result.low #verdict { color: var(--low); } #result.high #verdict { color: var(--high); }
+  .bar { position: relative; height: 12px; background: var(--line); border-radius: 99px; overflow: visible; margin: 14px 0 8px; }
+  .fill { height: 100%; border-radius: 99px; background: currentColor; }
+  #result.low .fill { color: var(--low); } #result.high .fill { color: var(--high); }
+  .tick { position: absolute; top: -5px; width: 2px; height: 22px; background: var(--ink); }
+  .meta { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); flex-wrap: wrap; gap: 6px; }
+  #error { margin-top: 16px; color: var(--high); display: none; }
+  footer { margin-top: 28px; font-size: .78rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Credit Ledger</h1>
+  <p class="sub">Estimate a loan applicant's probability of default using an XGBoost credit-risk model.</p>
+
+  <form id="form">
+    <div class="grid">
+      <div><label for="person_age">Age</label>
+        <input id="person_age" type="number" min="18" max="100" step="1" value="30" required></div>
+      <div><label for="person_income">Annual income</label>
+        <input id="person_income" type="number" min="1" step="any" value="60000" required></div>
+
+      <div><label for="person_home_ownership">Home ownership</label>
+        <select id="person_home_ownership">
+          <option>RENT</option><option>MORTGAGE</option><option>OWN</option><option>OTHER</option></select></div>
+      <div><label for="person_emp_length">Employment length (years)</label>
+        <input id="person_emp_length" type="number" min="0" max="60" step="any" value="4" required></div>
+
+      <div><label for="loan_intent">Loan purpose</label>
+        <select id="loan_intent">
+          <option value="EDUCATION">Education</option><option value="MEDICAL">Medical</option>
+          <option value="VENTURE">Venture</option><option value="PERSONAL">Personal</option>
+          <option value="DEBTCONSOLIDATION">Debt consolidation</option>
+          <option value="HOMEIMPROVEMENT">Home improvement</option></select></div>
+      <div><label for="loan_grade">Loan grade</label>
+        <select id="loan_grade">
+          <option>A</option><option selected>B</option><option>C</option><option>D</option>
+          <option>E</option><option>F</option><option>G</option></select></div>
+
+      <div><label for="loan_amnt">Loan amount</label>
+        <input id="loan_amnt" type="number" min="1" step="any" value="10000" required></div>
+      <div><label for="loan_int_rate">Interest rate (%)</label>
+        <input id="loan_int_rate" type="number" min="0" max="40" step="any" value="11" required></div>
+
+      <div><label for="loan_percent_income">Loan as share of income</label>
+        <input id="loan_percent_income" type="number" step="0.01" readonly>
+        <div class="hint">Calculated: loan amount ÷ income</div></div>
+      <div><label for="cb_person_cred_hist_length">Credit history length (years)</label>
+        <input id="cb_person_cred_hist_length" type="number" min="0" max="60" step="1" value="5" required></div>
+
+      <div><label for="cb_person_default_on_file">Previous default on file?</label>
+        <select id="cb_person_default_on_file"><option value="N">No</option><option value="Y">Yes</option></select></div>
+    </div>
+    <button id="submit" type="submit">Assess risk</button>
+    <div id="error" role="alert"></div>
+  </form>
+
+  <section id="result" aria-live="polite">
+    <h2 id="verdict"></h2>
+    <div class="bar"><div class="fill" id="fill"></div><div class="tick" id="tick" title="Decision threshold"></div></div>
+    <div class="meta"><span id="prob"></span><span id="thr"></span></div>
+  </section>
+
+  <footer>Model output is a statistical estimate for demonstration, not a lending decision.</footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const numeric = ["person_age","person_income","person_emp_length","loan_amnt","loan_int_rate","loan_percent_income","cb_person_cred_hist_length"];
+const text = ["person_home_ownership","loan_intent","loan_grade","cb_person_default_on_file"];
+
+function syncShare() {
+  const inc = parseFloat($("person_income").value), amt = parseFloat($("loan_amnt").value);
+  $("loan_percent_income").value = inc > 0 && amt >= 0 ? (amt / inc).toFixed(2) : "";
+}
+$("person_income").addEventListener("input", syncShare);
+$("loan_amnt").addEventListener("input", syncShare);
+syncShare();
+
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("error").style.display = "none";
+  const body = {};
+  numeric.forEach(k => body[k] = parseFloat($(k).value));
+  text.forEach(k => body[k] = $(k).value);
+  body.person_age = Math.round(body.person_age);
+  body.cb_person_cred_hist_length = Math.round(body.cb_person_cred_hist_length);
+
+  const btn = $("submit"); btn.disabled = true; btn.textContent = "Assessing…";
+  try {
+    const res = await fetch("/predict", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error("Server returned " + res.status);
+    const r = await res.json();
+    const pct = (r.default_probability * 100);
+    const high = r.default_prediction === 1;
+    $("result").className = high ? "high" : "low";
+    $("result").style.display = "block";
+    $("verdict").textContent = r.Result;
+    $("fill").style.width = Math.max(pct, 1).toFixed(1) + "%";
+    $("tick").style.left = (r.threshold * 100).toFixed(1) + "%";
+    $("prob").textContent = "Default probability: " + pct.toFixed(1) + "%";
+    $("thr").textContent = "Decision threshold: " + (r.threshold * 100).toFixed(1) + "%";
+  } catch (err) {
+    $("error").textContent = "Could not get a prediction (" + err.message + "). If the app was idle, wait ~30 seconds and try again.";
+    $("error").style.display = "block";
+  } finally {
+    btn.disabled = false; btn.textContent = "Assess risk";
+  }
+});
+</script>
+</body>
+</html>
